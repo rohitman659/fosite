@@ -43,13 +43,13 @@ type ClientAuthenticationStrategy func(context.Context, *http.Request, url.Value
 
 const clientAssertionJWTBearerType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
-func (f *Fosite) findClientPublicJWK(oidcClient OpenIDConnectClient, t *jwt.Token, expectsRSAKey bool) (interface{}, error) {
+func (f *Fosite) findClientPublicJWK(ctx context.Context, oidcClient OpenIDConnectClient, t *jwt.Token, expectsRSAKey bool) (interface{}, error) {
 	if set := oidcClient.GetJSONWebKeys(); set != nil {
 		return findPublicKey(t, set, expectsRSAKey)
 	}
 
 	if location := oidcClient.GetJSONWebKeysURI(); len(location) > 0 {
-		keys, err := f.JWKSFetcherStrategy.Resolve(location, false)
+		keys, err := f.Config.GetJWKSFetcherStrategy(ctx).Resolve(location, false)
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +58,7 @@ func (f *Fosite) findClientPublicJWK(oidcClient OpenIDConnectClient, t *jwt.Toke
 			return key, nil
 		}
 
-		keys, err = f.JWKSFetcherStrategy.Resolve(location, true)
+		keys, err = f.Config.GetJWKSFetcherStrategy(ctx).Resolve(location, true)
 		if err != nil {
 			return nil, err
 		}
@@ -72,10 +72,10 @@ func (f *Fosite) findClientPublicJWK(oidcClient OpenIDConnectClient, t *jwt.Toke
 // AuthenticateClient authenticates client requests using the configured strategy
 // `Fosite.ClientAuthenticationStrategy`, if nil it uses `Fosite.DefaultClientAuthenticationStrategy`
 func (f *Fosite) AuthenticateClient(ctx context.Context, r *http.Request, form url.Values) (Client, error) {
-	if f.ClientAuthenticationStrategy == nil {
-		return f.DefaultClientAuthenticationStrategy(ctx, r, form)
+	if s := f.Config.GetClientAuthenticationStrategy(ctx); s != nil {
+		return s(ctx, r, form)
 	}
-	return f.ClientAuthenticationStrategy(ctx, r, form)
+	return f.DefaultClientAuthenticationStrategy(ctx, r, form)
 }
 
 // DefaultClientAuthenticationStrategy provides the fosite's default client authentication strategy,
@@ -136,11 +136,11 @@ func (f *Fosite) DefaultClientAuthenticationStrategy(ctx context.Context, r *htt
 			}
 			switch t.Method {
 			case jose.RS256, jose.RS384, jose.RS512:
-				return f.findClientPublicJWK(oidcClient, t, true)
+				return f.findClientPublicJWK(ctx, oidcClient, t, true)
 			case jose.ES256, jose.ES384, jose.ES512:
-				return f.findClientPublicJWK(oidcClient, t, false)
+				return f.findClientPublicJWK(ctx, oidcClient, t, false)
 			case jose.PS256, jose.PS384, jose.PS512:
-				return f.findClientPublicJWK(oidcClient, t, true)
+				return f.findClientPublicJWK(ctx, oidcClient, t, true)
 			case jose.HS256, jose.HS384, jose.HS512:
 				return nil, errorsx.WithStack(ErrInvalidClient.WithHint("This authorization server does not support client authentication method 'client_secret_jwt'."))
 			default:
@@ -165,7 +165,7 @@ func (f *Fosite) DefaultClientAuthenticationStrategy(ctx context.Context, r *htt
 		var jti string
 		if !claims.VerifyIssuer(clientID, true) {
 			return nil, errorsx.WithStack(ErrInvalidClient.WithHint("Claim 'iss' from 'client_assertion' must match the 'client_id' of the OAuth 2.0 Client."))
-		} else if f.TokenURL == "" {
+		} else if f.Config.GetTokenURL(ctx) == "" {
 			return nil, errorsx.WithStack(ErrMisconfiguration.WithHint("The authorization server's token endpoint URL has not been set."))
 		} else if sub, ok := claims["sub"].(string); !ok || sub != clientID {
 			return nil, errorsx.WithStack(ErrInvalidClient.WithHint("Claim 'sub' from 'client_assertion' must match the 'client_id' of the OAuth 2.0 Client."))
@@ -197,20 +197,20 @@ func (f *Fosite) DefaultClientAuthenticationStrategy(ctx context.Context, r *htt
 		}
 
 		if auds, ok := claims["aud"].([]interface{}); !ok {
-			if !claims.VerifyAudience(f.TokenURL, true) {
-				return nil, errorsx.WithStack(ErrInvalidClient.WithHintf("Claim 'audience' from 'client_assertion' must match the authorization server's token endpoint '%s'.", f.TokenURL))
+			if !claims.VerifyAudience(f.Config.GetTokenURL(ctx), true) {
+				return nil, errorsx.WithStack(ErrInvalidClient.WithHintf("Claim 'audience' from 'client_assertion' must match the authorization server's token endpoint '%s'.", f.Config.GetTokenURL(ctx)))
 			}
 		} else {
 			var found bool
 			for _, aud := range auds {
-				if a, ok := aud.(string); ok && a == f.TokenURL {
+				if a, ok := aud.(string); ok && a == f.Config.GetTokenURL(ctx) {
 					found = true
 					break
 				}
 			}
 
 			if !found {
-				return nil, errorsx.WithStack(ErrInvalidClient.WithHintf("Claim 'audience' from 'client_assertion' must match the authorization server's token endpoint '%s'.", f.TokenURL))
+				return nil, errorsx.WithStack(ErrInvalidClient.WithHintf("Claim 'audience' from 'client_assertion' must match the authorization server's token endpoint '%s'.", f.Config.GetTokenURL(ctx)))
 			}
 		}
 
@@ -253,7 +253,7 @@ func (f *Fosite) DefaultClientAuthenticationStrategy(ctx context.Context, r *htt
 
 func (f *Fosite) checkClientSecret(ctx context.Context, client Client, clientSecret []byte) error {
 	var err error
-	err = f.Hasher.Compare(ctx, client.GetHashedSecret(), clientSecret)
+	err = f.Config.GetSecretsHasher(ctx).Compare(ctx, client.GetHashedSecret(), clientSecret)
 	if err == nil {
 		return nil
 	}
@@ -262,7 +262,7 @@ func (f *Fosite) checkClientSecret(ctx context.Context, client Client, clientSec
 		return err
 	}
 	for _, hash := range cc.GetRotatedHashes() {
-		err = f.Hasher.Compare(ctx, hash, clientSecret)
+		err = f.Config.GetSecretsHasher(ctx).Compare(ctx, hash, clientSecret)
 		if err == nil {
 			return nil
 		}
