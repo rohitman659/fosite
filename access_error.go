@@ -50,9 +50,11 @@ func (f *Fosite) writeJsonError(rw http.ResponseWriter, requester AccessRequeste
 		} else {
 			http.Error(rw, `{"error":"server_error"}`, http.StatusInternalServerError)
 		}
+		fmt.Println("here in the marshal error")
 		return
 	}
 
+	fmt.Println("the code is", rfcerr.CodeField)
 	rw.WriteHeader(rfcerr.CodeField)
 	// ignoring the error because the connection is broken when it happens
 	_, _ = rw.Write(js)
