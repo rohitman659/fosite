@@ -23,7 +23,7 @@ package fosite
 
 import (
 	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -52,13 +52,15 @@ import (
 // respond with an introspection response with the "active" field set to
 // "false" as described in Section 2.2.
 func (f *Fosite) WriteIntrospectionError(rw http.ResponseWriter, err error) {
+	log.Println("here I am")
 	if err == nil {
+		log.Println("here I am 2")
 		return
 	}
 
 	// Inactive token errors should never written out as an error.
 	if !errors.Is(err, ErrInactiveToken) && (errors.Is(err, ErrInvalidRequest) || errors.Is(err, ErrRequestUnauthorized)) {
-		fmt.Println("here in the block 1")
+		log.Println("here I am 3")
 		f.writeJsonError(rw, nil, err)
 		return
 	}
