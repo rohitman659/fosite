@@ -23,6 +23,7 @@ package fosite
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"strings"
 
@@ -61,6 +62,7 @@ func (f *Fosite) IntrospectToken(ctx context.Context, token string, tokenUse Tok
 	ar := NewAccessRequest(session)
 	for _, validator := range f.TokenIntrospectionHandlers {
 		tu, err := validator.IntrospectToken(ctx, token, tokenUse, ar, scopes)
+		log.Println("validator err is", err)
 		if err == nil {
 			found = true
 			foundTokenUse = tu
@@ -68,6 +70,7 @@ func (f *Fosite) IntrospectToken(ctx context.Context, token string, tokenUse Tok
 			// do nothing
 		} else {
 			rfcerr := ErrorToRFC6749Error(err)
+			log.Println("rfc error is", errors.WithStack(rfcerr))
 			return "", nil, errorsx.WithStack(rfcerr)
 		}
 	}
