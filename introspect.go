@@ -62,7 +62,7 @@ func (f *Fosite) IntrospectToken(ctx context.Context, token string, tokenUse Tok
 	ar := NewAccessRequest(session)
 	for _, validator := range f.TokenIntrospectionHandlers {
 		tu, err := validator.IntrospectToken(ctx, token, tokenUse, ar, scopes)
-		log.Println("validator err is", err)
+		log.Println("validator err is", errorsx.Cause(err))
 		if err == nil {
 			found = true
 			foundTokenUse = tu
@@ -71,6 +71,7 @@ func (f *Fosite) IntrospectToken(ctx context.Context, token string, tokenUse Tok
 		} else {
 			rfcerr := ErrorToRFC6749Error(err)
 			log.Println("rfc error is", errors.WithStack(rfcerr))
+			log.Println("validator causer err is", errorsx.Cause(errors.WithStack(rfcerr)))
 			return "", nil, errorsx.WithStack(rfcerr)
 		}
 	}
